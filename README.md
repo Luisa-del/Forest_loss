@@ -1,4 +1,7 @@
-# Forest_loss
+# Google Earth Engine (GEE) App for forest loss statistics and Forest Continuity Index 
+
+
+
 
 ## 1. How-to-open GEE-PICX 
 
