@@ -1,0 +1,1740 @@
+/**
+      APP URL : users/IntroGEE_MET3/forest-cover-loss-vietnam 
+*/
+
+/**
+ * Script for the evaluation of deforestation intensity based on the Hansen Global Forest Loss dataset.
+ * 
+ * Course: Earth Observation for Conservation
+ * Authors: Hyeonmin Kang and Cornelia Zygar, EAGLE MSc., University of Wuerzburg
+ * Contact: kang@nadar.earth, cornelia.zygar@stud-mail.uni-wuerzburg.de
+ * Date: 07.06.2023
+ */
+ 
+var hansen = ee.Image("UMD/hansen/global_forest_change_2022_v1_10")
+var province = ee.FeatureCollection("users/IntroGEE_MET3/gadm36_VNM_1");
+// visualization parameters for grey background and forest cover in 2000
+var visParamsTC =  {"opacity":1,"bands":["treecover2000"],"min":0,"max":100,"palette":["bababa","1d8d1b"]};
+var drawingTools = Map.drawingTools();
+// parameters defining start and end year
+var start = 0;
+var end = 22;
+var numberOfYears = 23 
+var prj = hansen.projection();
+var scale = prj.nominalScale();
+
+
+// layers of the hansen dataset that are used for the analysis:
+
+// only detecting loss pixels where treecover2000 is larger than 10 %
+// 10% is default. Value can be changed via drop down menu.
+var lossImage = hansen.select(['loss']);
+var lossImage_10perc = (hansen.select(['treecover2000']).gte(10).selfMask()).and(hansen.select(['loss']).eq(1).selfMask());
+var lossAreaImage = lossImage_10perc.multiply(ee.Image.pixelArea());
+
+// create binary image (0 = forest cover below 10%, 1 = above 10%)
+// again: 10% is default. Value can be changed via drop down menu.
+var treeCover = hansen.select(['treecover2000']);
+var treeCover_10perc = treeCover.gte(10);
+var treeCover2000area_2 = treeCover_10perc.multiply(ee.Image.pixelArea());
+
+var lossYear = hansen.select(['lossyear']);
+
+// display of provinces on the map
+var province = province.sort('VARNAME_1',true);
+var prov_list = province.aggregate_array('VARNAME_1').distinct();
+
+prov_list.evaluate(function (list) {
+    panel.province.items().reset(list);
+});
+
+// Some style properties
+var PROVINCES_STYLE = {color: '#2c2d1e', fillColor: '00000000'};
+
+var styleBox = {
+    padding: '0px 0px 0px 0px',
+    width: '278px',
+    backgroundColor: 'rgba(0,0,0,0.0)',
+    color: '#404c24'
+};
+var styleBox2 = {
+    padding: '0px 0px 0px 0px',
+    backgroundColor: 'rgba(0,0,0,0.0)',
+    color: '#404c24',
+    width: '130px',
+    stretch: 'horizontal'
+};
+var styleH1 = {
+    fontWeight: 'bold',
+    fontSize: '20px',
+    margin: '5px 5px 5px 5px',
+    padding: '0px 0px 0px 0px',
+    color: '#3d6b56',
+    backgroundColor: 'rgba(0,0,0,0.0)'
+};
+
+var styleH2 = {
+    fontWeight: 'bold',
+    fontSize: '14px',
+    margin: '5px 5px',
+    color: '#3e4437',
+    backgroundColor: 'rgba(0,0,0,0.0)'
+};
+
+var styleP = {
+    fontSize: '12px',
+    margin: '5px 5px',
+    padding: '0px 0px 0px 5px',
+     backgroundColor: 'rgba(0,0,0,0.0)',
+     color: '#3e4437',
+};
+
+var styleL = {
+  fontSize: '12px',
+    margin: '0px',
+     backgroundColor: 'rgba(0,0,0,0.0)',
+     color: '#3e4437',
+}
+ 
+var chartPanel = ui.Panel({
+                style: {
+                    position: 'bottom-left',
+                    padding: '5px 5px',
+                    width: '535px',
+                    maxHeight: "80%"
+                }
+            });
+var buttonPanel = ui.Panel(
+                [ui.Button('clear the result', clearResults)],
+               ui.Panel.Layout.Flow('horizontal'), {margin: '0 0 0 auto', width: '500px'});             
+// Some global variables
+var selFeature;
+var first;
+var area2000;
+var nameColumnName;
+var assetColumnName;
+var nameList;
+var currentData;
+var densities = {
+  "10%": [10],
+  "20%": [20],
+  "30%": [30],
+  "40%": [40],
+  "50%": [50],
+  "60%": [60],
+  "70%": [70]
+};
+
+// 10 is default. Value can be changed via drop down menu
+var MTCD_val = 10;
+
+//#################################################################################################
+// Definition of the Main Panel 
+//#################################################################################################
+var panel = {
+    title: ui.Label({
+        value: 'Forest Cover Loss of Vietnam - ',
+        style: styleH1
+    }),
+    sec_panel:ui.Label({
+      value:'Province Level',
+      style:{
+        fontWeight: 'bold',
+        fontSize: '14px',
+        margin: '5px 5px 5px 5px',
+        padding: '0px 0px 0px 0px',
+        color: '#3d6b56',
+        backgroundColor: 'rgba(0,0,0,0.0)'
+      }
+    }),
+    
+    //#################################################################################################
+    // Tree Cover density definition
+    //#################################################################################################
+    // description
+    density_description: ui.Label({
+        value: 'Minimum Tree Cover Density (2000) (MTCD) :',
+        style: styleH2
+    }), 
+
+    // drop down menu to select minimum tree cover density.
+    density_select: ui.Select({
+      placeholder: 'Select MTCD(%)',
+      items: Object.keys(densities),
+      style: {backgroundColor: 'rgba(0,0,0,0.0)',
+              color: '#404c24'},
+      onChange: function(key) {
+        Map.clear();
+        //densityAdjust();
+        drawingTools.setShown(false);
+        MTCD_val = densities[key][0];
+        
+        // forest loss
+        // only detecting loss pixels where treecover2000 is larger than f %
+        var lossImage_fperc = (hansen.select(['treecover2000']).gte(ee.Number(MTCD_val)).selfMask()).and(hansen.select(['loss']).eq(1).selfMask());
+        lossAreaImage = lossImage_fperc.multiply(ee.Image.pixelArea());
+        
+        // forest area in 2000
+        var treeCover_fperc = treeCover.gte(ee.Number(MTCD_val));
+        treeCover2000area_2 = treeCover_fperc.multiply(ee.Image.pixelArea());
+            
+        
+        Map.addLayer(treeCover_fperc, {"opacity":1,"min":0,"max":1,"palette":["bababa","1d8d1b"]}, 'Forest Cover 2000 (MTCD' + MTCD_val.toString()+ ')'); 
+        Map.addLayer(lossImage_fperc , {palette: '#e50a7e'}, 'Forest Loss 2001-2022');
+        Map.addLayer(province.style(PROVINCES_STYLE),{},"vietnam provinces");
+
+      }
+    }),
+    
+    //#################################################################################################
+    //Select Province Dropdown 
+    //#################################################################################################
+    // description
+    area_list: ui.Label({
+        value: 'Select a province in Vietnam :',
+        style: styleH2
+    }),
+
+    // drop down menu
+    province: ui.Select({
+        placeholder: 'Select Province',
+        style: styleBox,
+        onChange: function () {
+            // managing map layers
+            //panel.density_select.setDisabled(true);
+            //Map.clear();
+
+            // extract selected provice
+            var layer = province.filterMetadata('VARNAME_1', 'equals', panel.province.getValue());
+            currentData = layer;
+            nameColumnName = "VARNAME_1";
+            var forestLoss = lossYear.clip(layer);
+
+            var nullImage = ee.Image().byte();
+            var province_outline = nullImage.paint({
+                featureCollection: layer,
+                width: 4
+            });
+            var treeCover_fperc = treeCover.gte(ee.Number(MTCD_val));
+            var image_clip = ee.ImageCollection(ee.List.sequence(start, end).map(function (a) {
+                var mask = forestLoss.eq(ee.Number(a).int()).selfMask().and(treeCover_fperc.selfMask());
+                return mask.set('Year', ee.Number(2000).add(a));
+            }));
+            
+            var provName = layer.aggregate_array("VARNAME_1").get(0);
+            var year_list = image_clip.aggregate_array('Year');
+            year_list.evaluate(function (year){
+                year.map(function (y) {
+                    var img_fil = image_clip.filterMetadata('Year', 'equals', y).first();
+                    return Map.addLayer(img_fil, {
+                        palette: 'cyan' 
+                    }, 'Loss Year: ' + y.toString()+ ' ('+panel.province.getValue()+')', false);//
+                });
+            });
+
+
+            Map.addLayer(province_outline, {
+                palette: '#fac807'
+            }, panel.province.getValue());
+            
+            Map.centerObject(layer,9);
+            }
+    }),
+    
+    //#################################################################################################
+    // Asset selection part
+    //#################################################################################################
+    // description for asset import option
+    poly: ui.Label({
+        value: 'Or use your own asset as aoi :',
+        style: styleH2
+    }), 
+    
+    // asset import textbox for name column
+    polygonName: ui.Textbox({
+      placeholder: "Column name of your feature (asset)",
+      style: styleBox,
+      onChange: function(text){
+        nameColumnName = text;
+        //assetColumnName = text;
+      }
+    }),
+    
+    // asset import textbox for link to asset
+    polygon: ui.Textbox({
+        placeholder: 'users/your_username/asset_name',
+        style: styleBox,
+        onChange: function(text) {
+          
+        //panel.density_select.setDisabled(true);
+          
+        // managing map layers
+        Map.clear();
+        var lossImage_fperc = (hansen.select(['treecover2000']).gte(ee.Number(MTCD_val)).selfMask()).and(hansen.select(['loss']).eq(1).selfMask());
+
+        // forest area in 2000
+        var treeCover_fperc = treeCover.gte(ee.Number(MTCD_val));
+
+        Map.addLayer(treeCover_fperc, {"opacity":1,"min":0,"max":1,"palette":["bababa","1d8d1b"]}, 'Forest Cover 2000 (MTCD' + MTCD_val.toString()+ ')'); 
+        Map.addLayer(lossImage_fperc , {palette: '#e50a7e'}, 'Forest Loss 2001-2020');
+        Map.addLayer(province.style(PROVINCES_STYLE),{},"vietnam provinces");
+          // adding selected asset to map
+        currentData = text;
+        selFeature = ee.FeatureCollection(text);
+
+        var nullImage = ee.Image().byte();
+        var outline = nullImage.paint({
+                featureCollection: selFeature,
+                width: 4
+            });
+
+        Map.addLayer(outline, {
+                palette: '#fac807' // //ef3406
+            }, "your aoi");
+
+        var forestLoss = lossYear.clip(selFeature);
+
+        var treeCover_fperc = treeCover.gte(ee.Number(MTCD_val));
+        var image_clip = ee.ImageCollection(ee.List.sequence(start, end).map(function (a) {
+                var mask = forestLoss.eq(ee.Number(a).int()).selfMask().and(treeCover_fperc.selfMask());
+                return mask.set('Year', ee.Number(2000).add(a));
+        }));
+
+        var year_list = image_clip.aggregate_array('Year');
+            year_list.evaluate(function (year){
+                year.map(function (y) {
+                    var img_fil = image_clip.filterMetadata('Year', 'equals', y).first();
+                    return Map.addLayer(img_fil, {
+                        palette: 'cyan' 
+                    }, 'Asset Loss Year: ' + y.toString(), false);
+                });
+            });
+          
+          
+        Map.centerObject(selFeature,9);
+
+        }
+    }),
+    help_poly: ui.Label({value: "Caution: do not forget to check 'Anyone can read' box, to make your asset public!",
+                         style:styleP})
+                        .setUrl('https://developers.google.com/earth-engine/guides/asset_manager#sharing-assets'),
+    drawDescription: ui.Label({
+        value: 'Draw your aoi only for exporting raster:',
+        style: styleH2
+    }),
+    drawButton: ui.Button({
+        label:'Draw your aoi',
+        style: styleBox2,
+        onClick: function() {
+            //panel.density_select.setDisabled(true);
+            var layers = drawingTools.layers();
+            var nLayers = drawingTools.layers().length();
+            if (nLayers > 0) {
+              layers.reset()
+            }
+            drawingTools.setShape('rectangle');
+            drawingTools.draw();
+        }
+        }),
+        
+    clearAoiButton: ui.Button({
+      label:'Clear your aoi',
+      style: styleBox2,
+      onClick: function() {
+          //panel.density_select.setDisabled(true);
+          var layers = drawingTools.layers();
+          var nLayers = drawingTools.layers().length();
+          if (nLayers > 0) {
+            //layers.get(0).geometries().remove(layers.get(0).geometries().get(0));
+            layers.reset();
+          }
+      }
+      }),
+    
+    
+    // description for visualization options
+    disp_description: ui.Label({
+        value: 'Click on the information you want to display:',
+        style: styleH2
+    }),
+    
+    //#################################################################################################
+    //Yearly forest loss option
+    //#################################################################################################
+    
+    disp_yearly_forest_loss: ui.Button({
+      label:"yearly forest loss",
+      style: styleBox,
+      onClick: function() {
+          drawingTools.stop();
+          var layers = drawingTools.layers()
+          layers.reset();
+          var text = currentData;
+          selFeature = ee.FeatureCollection(text);
+          nameList = selFeature.aggregate_array(nameColumnName);
+
+          //counting number of features
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+          
+          //turning features into geometries
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+          
+          //extracting properties
+          var propertyLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f));
+          });
+          
+          //creating list of Objects containing values for each year
+          first = polygonLists.map(yearlyDefo);
+          print(first, "first")
+          
+          var size= first.size();
+          
+          // creating charts
+          size.evaluate(function(size) {
+            for (var i = 0; i < size; i++) {
+              var dict= ee.Dictionary(first.get(i)); 
+              var chart0 = ui.Chart.array.values({
+              array: dict.values(),
+              axis: 0,
+              xLabels: dict.keys()
+            }).setChartType('ColumnChart')//"Combochart"
+              .setOptions({
+                title: "Yearly Forest Loss " + nameList.get(i).getInfo() + " \n(MTCD = "+ MTCD_val + " %)",
+                legend: { position: "none" },
+                lineWidth: 1,
+                pointSize: 3,
+                hAxis: {
+                      title: 'Year',
+                      format: '####',
+                      textStyle: {
+                          fontSize: 9 
+                      }
+                },
+                vAxis: {
+                    title: 'Area (hectares)',
+                    textStyle: {
+                        fontSize: 12
+                    }
+                },
+                colors: ['#EA7B37'],
+                style: {
+                    shown: false
+                }
+            
+              });
+            chartPanel.add(chart0);
+          }
+    });
+
+          Map.remove(chartPanel);
+          chartPanel.clear();   
+          chartPanel.add(buttonPanel);
+
+          Map.add(chartPanel);
+  }
+    }),
+    
+    //#################################################################################################
+    //forest loss in percent compared to 2000
+    //#################################################################################################
+    disp_yearly_forest_loss_perc: ui.Button({
+      label:"yearly forest loss compared to 2000 (percent)",
+      style: styleBox,
+      onClick: function() {
+          drawingTools.stop();
+          var layers = drawingTools.layers()
+          layers.reset();
+          var text = currentData;
+          selFeature = ee.FeatureCollection(text);
+          nameList = selFeature.aggregate_array(nameColumnName);
+             
+          //counting number of features
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+          
+
+          
+          //turning features into geometries
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+          
+          //extracting properties
+          var propertyLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f));
+          });
+          
+          // forest area for each polygon in 2000
+          area2000 = polygonLists.map(forestArea2000);
+          
+          //creating list of Objects containing values for each year
+          first = polygonLists.map(yearlyDefo);
+          //var regionArea2000 = area2000.get(0);
+          // forest area in this region in 2000 as NUMBER
+          //var regionArea2000Num = ee.Number(ee.Dictionary(regionArea2000).values().get(0)).multiply(0.0001).multiply(10).round().divide(10);
+          var size= first.size();
+          
+          size.evaluate(function(size) {
+            for (var i = 0; i < size; i++) {
+              var dict= ee.Dictionary(first.get(i)); 
+              // forest area in this region in 2000
+              var regionArea2000 = area2000.get(i);
+              // forest area in this region in 2000 as NUMBER
+              var regionArea2000Num = ee.Number(ee.Dictionary(regionArea2000).values().get(0)).multiply(0.0001).multiply(10).round().divide(10);
+
+              var chart0 = ui.Chart.array.values({
+              array: dict.values().map(forest_loss_perc_fct(regionArea2000Num)),
+              axis: 0,
+              xLabels: dict.keys()
+            }).setChartType('ColumnChart')
+              .setOptions({
+                title: "Yearly Forest Loss in Percent " + nameList.get(i).getInfo() + " \n(MTCD = "+ MTCD_val + " %)",
+                legend: { position: "none" },
+                lineWidth: 1,
+                pointSize: 3,
+                hAxis: {
+                      title: 'Year',
+                      format: '####',
+                      textStyle: {
+                          fontSize: 9 
+                      }
+                },
+                vAxis: {
+                    title: 'Percent',
+                    textStyle: {
+                        fontSize: 12
+                    }
+                },
+                colors: ['#EA7B37'],
+                style: {
+                    shown: false
+                }
+            
+              });
+            chartPanel.add(chart0);
+            
+          }
+    });
+
+          Map.remove(chartPanel);
+          chartPanel.clear();
+          chartPanel.add(buttonPanel);
+          Map.add(chartPanel);
+  }
+    }),
+    
+    //#################################################################################################
+    //Remaining forest area
+    //#################################################################################################
+    disp_remaining_forest: ui.Button({
+      label:"remaining forest area",
+      style: styleBox,
+      onClick: function() {
+          drawingTools.stop();
+          var layers = drawingTools.layers()
+          layers.reset();
+          var text = currentData;
+          selFeature = ee.FeatureCollection(text);
+          nameList = selFeature.aggregate_array(nameColumnName);
+             
+          //counting number of features
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+          
+          //turning features into geometries
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+          
+          //extracting properties
+          var propertyLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f));
+          });
+          
+          // forest area for each polygon in 2000
+          area2000 = polygonLists.map(forestArea2000);
+          
+          //creating list of Objects containing values for each year
+          first = polygonLists.map(yearlyDefo);
+          
+          var size = first.size(); //3
+
+          size.evaluate(function(size) {
+            for (var i = 0; i < size; i++) {
+              var dict= ee.Dictionary(first.get(i)); 
+              // forest area in this region in 2000
+              var regionArea2000 = area2000.get(i);
+              // forest area in this region in 2000 as NUMBER in ha
+              var regionArea2000Num = ee.Number(ee.Dictionary(regionArea2000).values().get(0)).multiply(0.0001).multiply(10).round().divide(10);
+              var list2000 = ee.List([
+                // Rename the first band 'EVI'.
+                regionArea2000Num
+              ]);
+
+              var chart0 = ui.Chart.array.values({
+              array: ee.List(dict.values().iterate(test_fct, list2000)).slice(1),
+              axis: 0,
+              xLabels: dict.keys()
+            }).setChartType('ColumnChart')//"Combochart"
+              .setOptions({
+                title: "Remaining Forest Area " + nameList.get(i).getInfo() + " \n(MTCD = "+ MTCD_val + " %)",
+                legend: { position: "none" },
+                lineWidth: 1,
+                pointSize: 3,
+                hAxis: {
+                      title: 'Year',
+                      format: '####',
+                      textStyle: {
+                          fontSize: 9 
+                      }
+                },
+                vAxis: {
+                    title: 'Area (hectares)',
+                    textStyle: {
+                        fontSize: 12
+                    }
+                },
+                colors: ['#EA7B37'],
+                style: {
+                    shown: false
+                }
+            
+              });
+            chartPanel.add(chart0);
+            
+          }
+
+    });
+  
+          Map.remove(chartPanel);
+          chartPanel.clear();               
+          chartPanel.add(buttonPanel);
+          Map.add(chartPanel);
+  }
+    }),
+    
+//#################################################################################################
+//remaining forest area in percent compared to 2000
+//#################################################################################################
+    disp_remaining_forest_perc: ui.Button({
+      label:"remaining forest area (percent from 2000)",
+      style: styleBox,
+      onClick: function(){
+          drawingTools.stop();
+          var layers = drawingTools.layers()
+          layers.reset();
+          var text = currentData;
+          selFeature = ee.FeatureCollection(text);
+          nameList = selFeature.aggregate_array(nameColumnName);
+          //counting number of features
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+          
+          
+          //turning features into geometries
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+          
+          //extracting properties
+          var propertyLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f));
+          });
+          
+          // forest area for each polygon in 2000
+          area2000 = polygonLists.map(forestArea2000);
+          
+          //creating list of Objects containing values for each year
+          first = polygonLists.map(yearlyDefo);
+      
+          var size = first.size();
+  
+          Map.remove(chartPanel);
+          chartPanel.clear();
+          size.evaluate(function(size) {
+            
+            for (var i = 0; i < size; i++) {
+              
+              var dict= ee.Dictionary(first.get(i)); 
+
+              // forest area in this region in 2000
+              var regionArea2000 = area2000.get(i);
+              
+              // forest area in this region in 2000 as NUMBER
+              var regionArea2000Num = ee.Number(ee.Dictionary(regionArea2000).values().get(0)).multiply(0.0001).multiply(10).round().divide(10);
+              
+              var list2000 = ee.List([
+                // Rename the first band 'EVI'.
+                regionArea2000Num
+              ]);
+
+              var chart0 = ui.Chart.array.values({
+              array: ee.List(dict.values().iterate(test_fct, list2000)).slice(1).map(remaining_forest_perc_fct(regionArea2000Num)),
+              axis: 0,
+              xLabels: dict.keys()
+            }).setChartType('ColumnChart')//"Combochart"
+              .setOptions({
+                title: "Remaining Forest Area in Percent " + nameList.get(i).getInfo() + " \n(MTCD = "+ MTCD_val + " %)",
+                legend: { position: "none" },
+                lineWidth: 1,
+                pointSize: 3,
+                hAxis: {
+                      title: 'Year',
+                      format: '####',
+                      textStyle: {
+                          fontSize: 9 
+                      }
+                },
+                vAxis: {
+                    title: 'Percent',
+                    textStyle: {
+                        fontSize: 12
+                    }
+                },
+                colors: ['#EA7B37'],
+                style: {
+                    shown: false
+                }
+            
+              });
+            chartPanel.add(chart0);
+            
+          }
+    });
+          
+          Map.remove(chartPanel);
+          chartPanel.clear();               
+          chartPanel.add(buttonPanel);
+          Map.add(chartPanel);
+        
+      }
+    }),
+    legend_title: ui.Label({
+        value: 'Legend :',
+        style: styleH2
+    }),
+    // description for visualization options
+    exportDescription: ui.Label({
+        value: 'Export all the features in CSV format:',
+        style: styleH2
+    }),
+    exportButton: ui.Button({
+      label:"get URL to export all the features",
+      style: styleBox,
+      onClick: function() {
+        
+          drawingTools.stop();
+          var layers = drawingTools.layers()
+          layers.reset();
+          var text = currentData;
+          selFeature = ee.FeatureCollection(text);
+          nameList = selFeature.aggregate_array(nameColumnName);
+             
+          
+          //counting number of features
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+
+
+          //turning features into geometries
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+var yearLists = featureSizeSequence.map(function(i){
+          var lossByYear = lossAreaImage.addBands(lossYear).reduceRegion({
+                  reducer: ee.Reducer.sum().group({
+                    groupField: 1
+                    }),
+                  geometry:polygonLists.get(i),
+                  scale: scale,
+                  maxPixels: 1e9
+                  });
+           var yearList= ee.List(lossByYear.get('groups'))
+                .map(function (el) {
+                    var d = ee.Dictionary(el);
+                    return ee.Number(d.get('group')).format("20%02d");
+                });
+          var yearList = yearList.insert(0, 2000);
+          return yearList;
+});
+
+var yearListsFlatten = yearLists.flatten();
+
+var lossLists = featureSizeSequence.map(function(i){
+          var lossByYear = lossAreaImage.addBands(lossYear).reduceRegion({
+                  reducer: ee.Reducer.sum().group({
+                    groupField: 1
+                    }),
+                  geometry:polygonLists.get(i),
+                  scale: scale,
+                  maxPixels: 1e9
+                  });
+          var lossList= ee.List(lossByYear.get('groups'))
+                .map(function (el) {
+                    var d = ee.Dictionary(el);
+                    return ee.Number(d.get('sum')).multiply(0.0001).multiply(10).round().divide(10);
+                });
+          var lossList = lossList.insert(0, "NA"); 
+          return lossList;
+});
+var lossListsFlatten = lossLists.flatten();
+
+//print("lossListsFlatten",lossListsFlatten);
+
+var lossPercLists = featureSizeSequence.map(function(i){
+        var lossByYear = lossAreaImage.addBands(lossYear).reduceRegion({
+                  reducer: ee.Reducer.sum().group({
+                    groupField: 1
+                    }),
+                  geometry:polygonLists.get(i),
+                  scale: scale,
+                  maxPixels: 1e9
+                  });
+        var treeCover2000 = treeCover2000area_2.reduceRegion({
+            reducer: ee.Reducer.sum(),
+            geometry: polygonLists.get(i),
+            scale: scale,
+            maxPixels: 1e9,
+            });    
+
+        var regionArea2000Num = ee.Number(treeCover2000.values().get(0)).multiply(0.0001).multiply(10).round().divide(10);
+        var lossPercList= ee.List(lossByYear.get('groups'))
+                .map(function (el) {
+                    var d = ee.Dictionary(el);
+                    var current = ee.Number(d.get('sum')).multiply(0.0001).multiply(10).round().divide(10);
+                    return ee.Number(100).multiply(current).divide(regionArea2000Num).multiply(1000).round().divide(1000);
+                });
+        var lossPercList = lossPercList.insert(0, "NA");
+        
+        return lossPercList;
+});
+
+var lossPercListsFlatten = lossPercLists.flatten();
+
+//print("lossPercListsFlatten",lossPercListsFlatten);
+
+var remainForestLists = featureSizeSequence.map(function(i){
+        var lossByYear = lossAreaImage.addBands(lossYear).reduceRegion({
+                  reducer: ee.Reducer.sum().group({
+                    groupField: 1
+                    }),
+                  geometry:polygonLists.get(i),
+                  scale: scale,
+                  maxPixels: 1e9
+                  });
+                  
+        var lossList= ee.List(lossByYear.get('groups'))
+                .map(function (el) {
+                    var d = ee.Dictionary(el);
+                    return ee.Number(d.get('sum')).multiply(0.0001).multiply(10).round().divide(10);
+                });
+        var treeCover2000 = treeCover2000area_2.reduceRegion({
+            reducer: ee.Reducer.sum(),
+            geometry: polygonLists.get(i),
+            scale: scale,
+            maxPixels: 1e9,
+            });    
+
+        var regionArea2000Num = ee.Number(treeCover2000.values().get(0)).multiply(0.0001).multiply(10).round().divide(10);
+         var test_fct = function(current, list){
+            var previous = ee.Number(ee.List(list).get(-1));
+            var calc = previous.subtract(ee.Number(current)).multiply(10).round().divide(10);
+            return ee.List(list).add(calc);
+          };              
+          
+          var list2000 = ee.List([regionArea2000Num]);              
+          var remainForestList = ee.List(lossList.iterate(test_fct, list2000))
+        
+        return remainForestList;
+});
+
+var remainForestListsFlatten = remainForestLists.flatten();
+
+//print("remainForestListsFlatten",remainForestListsFlatten);
+
+
+var remainForestPercLists = featureSizeSequence.map(function(i){
+        var lossByYear = lossAreaImage.addBands(lossYear).reduceRegion({
+                  reducer: ee.Reducer.sum().group({
+                    groupField: 1
+                    }),
+                  geometry:polygonLists.get(i),
+                  scale: scale,
+                  maxPixels: 1e9
+                  });
+                  
+        var lossList= ee.List(lossByYear.get('groups'))
+                .map(function (el) {
+                    var d = ee.Dictionary(el);
+                    return ee.Number(d.get('sum')).multiply(0.0001).multiply(10).round().divide(10);
+                });
+        var treeCover2000 = treeCover2000area_2.reduceRegion({
+            reducer: ee.Reducer.sum(),
+            geometry: polygonLists.get(i),
+            scale: scale,
+            maxPixels: 1e9,
+            });    
+
+        var regionArea2000Num = ee.Number(treeCover2000.values().get(0)).multiply(0.0001).multiply(10).round().divide(10);
+         var test_fct = function(current, list){
+            var previous = ee.Number(ee.List(list).get(-1));
+            var calc = previous.subtract(ee.Number(current)).multiply(10).round().divide(10);
+            return ee.List(list).add(calc);
+          };              
+          
+          var list2000 = ee.List([regionArea2000Num]);              
+          var remainForestList = ee.List(lossList.iterate(test_fct, list2000))
+        var remainForestPercList= remainForestList
+                .map(function (el) {
+                    return ee.Number(100).multiply(el).divide(regionArea2000Num).multiply(1000).round().divide(1000);
+                });
+          
+        return remainForestPercList;
+});
+
+var remainForestPercListsFlatten = remainForestPercLists.flatten();
+
+//print("remainForestPercListsFlatten",remainForestPercListsFlatten);
+
+
+var nameLists = featureSizeSequence.map(function(i){
+          var name = nameList.get(i)
+          var numberOfYears = 23
+          var li = ee.List.repeat(name, numberOfYears)
+          return li;
+});
+var nameListsFlatten = nameLists.flatten();
+//print("nameListsFlatten",nameListsFlatten);
+var nullf = ee.Feature(null);
+//VARNAME_2users/IntroGEE_MET3/vietnam_4_regions
+var finalList = ee.FeatureCollection(ee.List.sequence(0,lossListsFlatten.size().subtract(1)).map(function (ele){
+              var newfc = nullf.set('name',nameListsFlatten.get(ele))
+                            .set('year',yearListsFlatten.get(ele))
+                            .set("forest_loss_ha", lossListsFlatten.get(ele))
+                            .set("forest_loss_perc_2000", lossPercListsFlatten.get(ele))
+                            .set("forest_area_ha", remainForestListsFlatten.get(ele))
+                            .set("forest_area_perc_2000", remainForestPercListsFlatten.get(ele));
+              return  newfc;
+              }));
+
+
+         var url = finalList.getDownloadURL();
+         panel.urlLabel.setUrl(url);
+         panel.urlLabel.style().set({shown: true});
+
+        /**/
+      }}),
+      urlLabel : ui.Label('Download in csv format ', 
+      {shown: false, fontSize: '13px',
+      padding: '0px 0px 0px 70px', 
+      backgroundColor: 'rgba(0,0,0,0.0)', 
+      color:'#404c24',
+      fontWeight: '700'}),
+      
+      exportForestLossRasterDescription: ui.Label({
+        value: 'Export forest loss images in GeoTIFF:',
+        style: styleH2
+    }),
+    exportForestLossRasterButton: ui.Button({
+      label:"Export forest loss raster to Google Drive",
+      style: styleBox,
+      onClick: function() {
+          drawingTools.stop()
+          var text = currentData;
+          var nLayers = drawingTools.layers().length();
+          if (nLayers > 0) {
+             selFeature  = drawingTools.layers().get(0).getEeObject();
+             selFeature = ee.FeatureCollection(selFeature)
+             nameList = ee.List(["aoi"]);
+          } else{
+               selFeature = ee.FeatureCollection(text)
+               nameList = selFeature.aggregate_array(nameColumnName);
+             }
+          
+          //var nameList = selFeature.aggregate_array(nameColumnName);
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+          //print(featureSizeSequence);
+          //turning features into geometries
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+          
+          var aoiBounds = ee.Geometry.Rectangle(selFeature).bounds();
+          var forestLoss = lossYear.clip(selFeature);
+          var treeCover_fperc = treeCover.gte(ee.Number(MTCD_val));
+            
+          var image_clip = ee.ImageCollection(ee.List.sequence(start, end).map(function (a) {
+                var mask = forestLoss.eq(ee.Number(a).int()).selfMask()
+                              .and(treeCover_fperc.selfMask());
+                return mask.set('Year', ee.Number(2000).add(a));
+            }));
+            
+            
+          var yearList = image_clip.aggregate_array('Year'); //.remove(2000);
+          
+          //var length= yearList.length()
+          //print(length, "size")
+          var imageClipList = image_clip.toList(image_clip.size());
+          yearList.evaluate(function(yearList) {
+            for (var i = 0; i < 23; i++) {
+              var image = ee.Image(imageClipList.get(i)); 
+              Export.image.toDrive({
+              image: image,   
+              description: 'forest_loss_'+ String(yearList[i]), 
+              folder: "GEE_Export", 
+              fileNamePrefix: 'forest_loss_'+ String(yearList[i]), 
+              region: selFeature,
+              scale: 30,
+              crs: 'EPSG:4326',
+              maxPixels: 1e13        
+              });
+          }
+        });
+         
+
+          
+      }}),
+      exportRemainingForestRasterDescription: ui.Label({
+        value: 'Export remaining forest images in GeoTIFF:',
+        style: styleH2
+    }),
+     exportRemainingForestRasterButton: ui.Button({
+      label:"Export remaining forest raster to Google Drive",
+      style: styleBox,
+      onClick: function() {
+          drawingTools.stop()
+          var text = currentData;
+          var nLayers = drawingTools.layers().length();
+          if (nLayers > 0) {
+             selFeature  = drawingTools.layers().get(0).getEeObject();
+             selFeature = ee.FeatureCollection(selFeature)
+             nameList = ee.List(["aoi"]);
+          } else{
+               selFeature = ee.FeatureCollection(text)
+               nameList = selFeature.aggregate_array(nameColumnName);
+             }
+          
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+
+          var treeCover_clipped = treeCover.clip(selFeature);
+          var treeCover_fperc = treeCover_clipped.gte(ee.Number(MTCD_val)).selfMask();
+          var forestLoss = lossYear.clip(selFeature);
+          var first = ee.List([treeCover_fperc]);
+          var nSteps = ee.List.sequence(1, end);
+          var calculateReForest = function(current, previous) {
+                var previousTreeCover = ee.Image(ee.List(previous).get(-1));
+                var treeloss = forestLoss.eq(ee.Number(current)).selfMask(); 
+                var minLoss = previousTreeCover.and(treeloss).rename('remainingForest').selfMask();
+                var minLossUnmask = minLoss.unmask(); 
+                var notLoss = minLossUnmask.select('remainingForest').eq(0);
+                var currentTreeCover = previousTreeCover.and(notLoss).selfMask();
+                var final = currentTreeCover.set('Year', ee.Number(2000).add(current));
+                return ee.List(previous).add(final);
+              };
+                        
+          var remainingTC = ee.List(nSteps.iterate(calculateReForest, first));              
+          
+          var image_clip = ee.ImageCollection(remainingTC);
+
+              
+    
+          var yearList = ee.List.sequence(2000, 2022);
+          var imageClipList = image_clip.toList(image_clip.size());
+          yearList.evaluate(function(yearList) {
+            for (var i = 0; i < 23; i++) { //change parameter
+              var image = ee.Image(imageClipList.get(i)); 
+              Export.image.toDrive({
+              image: image,   
+              description: 'Remaining_forest_'+ String(yearList[i]), 
+              folder: "GEE_Export", 
+              fileNamePrefix: 'Remaining_forest_'+ String(yearList[i]), 
+              region: selFeature,
+              scale: 30,
+              crs: 'EPSG:4326',
+              maxPixels: 1e13        
+              });
+          }
+        });
+
+      }}),
+     exportRemainingForestByteButton: ui.Button({
+      label:"Export remaining forest raster (MSPA)",
+      style: styleBox,
+      onClick: function() {
+          drawingTools.stop()
+          var text = currentData;
+          var nLayers = drawingTools.layers().length();
+          if (nLayers > 0) {
+             selFeature  = drawingTools.layers().get(0).getEeObject();
+             selFeature = ee.FeatureCollection(selFeature)
+             nameList = ee.List(["aoi"]);
+          } else{
+               selFeature = ee.FeatureCollection(text)
+               nameList = selFeature.aggregate_array(nameColumnName);
+             }
+          
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+          
+          var aoiBounds = ee.Geometry.Rectangle(selFeature).bounds();//?
+          var forestLoss = lossYear.clip(selFeature);
+          var treeCover_clipped = treeCover.clip(selFeature);
+          var treeCover_fperc = treeCover_clipped.gte(ee.Number(MTCD_val)).selfMask();
+          
+          var first = ee.List([treeCover_fperc]);
+          var nSteps = ee.List.sequence(1, end);
+          var calculateReForest = function(current, previous) {
+                var previousTreeCover = ee.Image(ee.List(previous).get(-1));
+                var treeloss = forestLoss.eq(ee.Number(current)).selfMask(); 
+                var minLoss = previousTreeCover.and(treeloss).rename('remainingForest').selfMask();
+                var minLossUnmask = minLoss.unmask(); 
+                var notLoss = minLossUnmask.select('remainingForest').eq(0);
+                var currentTreeCover = previousTreeCover.and(notLoss).selfMask();
+                var final = currentTreeCover.set('Year', ee.Number(2000).add(current))
+                return ee.List(previous).add(final);
+              };
+          //print(calculateReForest,"calculateReForest")              
+          var remainingTC = ee.List(nSteps.iterate(calculateReForest, first));              
+          //print(remainingTC,"remainingTC")
+          var image_clip = ee.ImageCollection(remainingTC.map(function (img) {
+                var imgImg = ee.Image(img);
+                var treecoverLoss1to2 = imgImg.where(imgImg.eq(1), ee.Image(2));
+                var treecoverLoss0to1 = treecoverLoss1to2.unmask(1);
+                return treecoverLoss0to1;
+                
+            }));
+          
+          // resample . 
+          /**
+          var resample100m = function(img){
+                return img.reproject(prj, null, 100)
+                        .reduceResolution({
+                              reducer: ee.Reducer.mean(),
+                              maxPixels: 1024
+                            });
+              };
+            
+          var image_clip_reprojected = image_clip.map(resample100m)
+             */ 
+          var yearList = ee.List.sequence(2000, 2022);
+          var imageClipList = image_clip.toList(image_clip.size());
+          yearList.evaluate(function(yearList) {
+            for (var i = 0; i < 23; i++) { //change parameter
+              var image = ee.Image(imageClipList.get(i)).toByte(); 
+              Export.image.toDrive({
+              image: image,   
+              description: 'Remaining_forest_'+ String(yearList[i]), 
+              folder: "GEE_Export", 
+              fileNamePrefix: 'Remaining_forest_'+ String(yearList[i]) + 'MSPA', 
+              region: selFeature,
+              scale: 30,
+              crs: 'EPSG:4326',
+              maxPixels: 1e13        
+              });
+          }
+        });
+
+      }}),
+      exportRemainingForestByteBufferButton: ui.Button({
+      label:"Export remaining forest raster with Buffer (MSPA)",
+      style: styleBox,
+      onClick: function() {
+          drawingTools.stop()
+          var text = currentData;
+          var nLayers = drawingTools.layers().length();
+          if (nLayers > 0) {
+             selFeature  = drawingTools.layers().get(0).getEeObject();
+             selFeature = ee.FeatureCollection(selFeature)
+             nameList = ee.List(["aoi"]);
+          } else{
+               selFeature = ee.FeatureCollection(text)
+               nameList = selFeature.aggregate_array(nameColumnName);
+             }
+          
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+          //var selFeatureBuffer = 
+          var aoiBounds = ee.Geometry.Rectangle(selFeature).bounds();//?
+          var selFeatureBuffer =  selFeature.geometry().buffer(1000)
+          var forestLoss = lossYear.clip(selFeatureBuffer);
+          var treeCover_clipped = treeCover.clip(selFeatureBuffer);
+          var treeCover_fperc = treeCover_clipped.gte(ee.Number(MTCD_val)).selfMask();
+          
+          var first = ee.List([treeCover_fperc]);
+          var nSteps = ee.List.sequence(1, end);
+          var calculateReForest = function(current, previous) {
+                var previousTreeCover = ee.Image(ee.List(previous).get(-1));
+                var treeloss = forestLoss.eq(ee.Number(current)).selfMask(); 
+                var minLoss = previousTreeCover.and(treeloss).rename('remainingForest').selfMask();
+                var minLossUnmask = minLoss.unmask(); 
+                var notLoss = minLossUnmask.select('remainingForest').eq(0);
+                var currentTreeCover = previousTreeCover.and(notLoss).selfMask();
+                var final = currentTreeCover.set('Year', ee.Number(2000).add(current))
+                return ee.List(previous).add(final);
+              };
+          //print(calculateReForest,"calculateReForest")              
+          var remainingTC = ee.List(nSteps.iterate(calculateReForest, first));              
+          //print(remainingTC,"remainingTC")
+          var image_clip = ee.ImageCollection(remainingTC.map(function (img) {
+                var imgImg = ee.Image(img);
+                var treecoverLoss1to2 = imgImg.where(imgImg.eq(1), ee.Image(2));
+                var treecoverLoss0to1 = treecoverLoss1to2.unmask(1);
+                return treecoverLoss0to1;
+                
+            }));
+          
+          // resample . 
+          /**
+          var resample100m = function(img){
+                return img.reproject(prj, null, 100)
+                        .reduceResolution({
+                              reducer: ee.Reducer.mean(),
+                              maxPixels: 1024
+                            });
+              };
+            
+          var image_clip_reprojected = image_clip.map(resample100m)
+             */ 
+          var yearList = ee.List.sequence(2000, 2022);
+          var imageClipList = image_clip.toList(image_clip.size());
+          yearList.evaluate(function(yearList) {
+            for (var i = 0; i < 23; i++) { //change parameter
+              var image = ee.Image(imageClipList.get(i)).toByte(); 
+              Export.image.toDrive({
+              image: image,   
+              description: 'Remaining_forest_'+ String(yearList[i]), 
+              folder: "GEE_Export", 
+              fileNamePrefix: 'Remaining_forest_'+ String(yearList[i]) + 'MSPA_buffer', 
+              region: selFeature,
+              scale: 30,
+              crs: 'EPSG:4326',
+              maxPixels: 1e13        
+              });
+          }
+        });
+
+      }}),
+      inputRasterMSPA : ui.Textbox({
+      style: styleBox,
+      placeholder: 'Raster: users/your_username/asset_name', 
+      onChange: function(input) {
+        
+          var imgMSPA = ee.Image(input);
+          var imgProjection = imgMSPA.projection();
+          var imgScale = imgProjection.nominalScale();
+           
+          // ---------- shapefile ------------------------ 
+          var text = currentData;
+          selFeature = ee.FeatureCollection(text)
+          nameList = selFeature.aggregate_array(nameColumnName);
+             
+          // counting number of features
+          var featureSizeSequence = ee.List.sequence(0, selFeature.size().subtract(1));
+
+          // turning features into geometries
+          var polygonLists = featureSizeSequence.map(function(f){
+            return ee.Feature(selFeature.toList(selFeature.size()).get(f)).geometry(); 
+          });
+          // ------------------------------------------------------- 
+          // forest will have value 1, non-forest pixel value will be 0 
+          var reclassifyForest = function(img){
+              var imgImg = ee.Image(img);
+              var toZero = imgImg.where(imgImg.eq(220), ee.Image(0));
+              toZero = toZero.where(toZero.eq(100), ee.Image(0));
+              toZero = toZero.where(toZero.eq(129), ee.Image(0));
+              var forest = toZero.where(toZero.neq(0), ee.Image(1))
+              return forest;
+            }
+          var reclassfiedForest = reclassifyForest(imgMSPA);    
+          var forest = reclassfiedForest.eq(1);
+          var forestAreaImg = forest.multiply(ee.Image.pixelArea());
+
+          // ---------- calculate the total forest area ------------------------  
+          // square meter 
+          var forestAreaListSqMeter = featureSizeSequence.map(function(i){
+              var forestArea = forestAreaImg.reduceRegion({
+                    reducer: ee.Reducer.sum(),
+                    geometry: polygonLists.get(i),
+                    scale: imgScale,
+                    maxPixels: 1e13
+                    });
+                    
+              return forestArea;      
+
+          });
+
+          var forestAreaListha= forestAreaListSqMeter
+                .map(function (el) {
+                  var b1 = ee.Dictionary(el)
+                  return ee.Number(b1.get('b1')).multiply(0.0001);
+});
+
+var forestAreaListhaFlatten = forestAreaListha.flatten();
+var forestAreaListm2= forestAreaListSqMeter
+                .map(function (el) {
+                  var b1 = ee.Dictionary(el)
+                  return ee.Number(b1.get('b1'));
+});
+           
+var forestAreaListm2Flatten = forestAreaListm2.flatten();          
+var nameLists = featureSizeSequence.map(function(i){
+              var name = nameList.get(i)
+              var numberOfYears = 1
+              var li = ee.List.repeat(name, 1)
+          return li;
+});
+
+var nameListsFlatten = nameLists.flatten();
+
+var reclassify = function(img){
+                var imgImg = ee.Image(img);
+                var toZero = imgImg.where(imgImg.eq(129), ee.Image(0));
+                toZero = toZero.where(toZero.eq(220), ee.Image(0));
+                toZero = toZero.where(toZero.eq(100), ee.Image(0));
+      
+                var toOne = toZero.where(imgImg.eq(9), ee.Image(1));
+                toOne = toOne.where(toOne.eq(33), ee.Image(1));
+                toOne = toOne.where(toOne.eq(133), ee.Image(1));
+                toOne = toOne.where(toOne.eq(65), ee.Image(1));
+                toOne = toOne.where(toOne.eq(109), ee.Image(1));
+                toOne = toOne.where(toOne.eq(165), ee.Image(1));
+                toOne = toOne.where(toOne.eq(101), ee.Image(1));
+                
+                var toTwo = toOne.where(toOne.eq(3), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(103), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(5), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(105), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(35), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(135), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(37), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(137), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(67), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(167), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(69), ee.Image(2));
+                toTwo = toTwo.where(toTwo.eq(169), ee.Image(2));
+                
+                var toThree = toTwo.where(toTwo.eq(17), ee.Image(3));
+                toThree = toThree.where(toThree.eq(117), ee.Image(3));
+                return toThree;
+        }
+var reclassifed = reclassify(imgMSPA);
+
+print(reclassifed)
+var calculateArea = function(pxV){
+  var object = reclassifed.eq(pxV);
+  var objectImg = object.multiply(ee.Image.pixelArea());
+  var objectListSqMeter = featureSizeSequence.map(function(i){
+              var objectArea = objectImg.reduceRegion({
+                    reducer: ee.Reducer.sum(),
+                    geometry: polygonLists.get(i),
+                    scale: imgScale,
+                    maxPixels: 1e13
+                    });
+              return objectArea;      
+          });
+  return objectListSqMeter;
+};
+
+var getFlatten = function(sqMList,i){
+  var sqMListFlatten= sqMList
+                .map(function (el) {
+                  var b1 = ee.Dictionary(el)
+                  return ee.Number(b1.get('b1')).multiply(i);
+});
+  sqMListFlatten = sqMListFlatten.flatten();
+return sqMListFlatten;
+}
+var calculateFeatureAreaM2 = function(feature) {
+                // Compute area in sq. m directly from the geometry.
+                var area = feature.area(1000);
+                // Return the feature with the squared difference set to the 'diff' property.
+                return feature.set('area_sqrm', area);
+              };  
+              
+var calculateFeatureAreaHa = function(feature) {
+                // Compute area in ha directly from the geometry.
+                var area = feature.area(1000).multiply(0.0001);
+                // Return the feature with the squared difference set to the 'diff' property.
+                return feature.set('area_ha', area);
+              };  
+              
+              
+              
+var coreListm2 = calculateArea(3)
+var coreListm2Flatten = getFlatten(coreListm2, 1);
+var coreListhaFlatten = getFlatten(coreListm2, 0.0001);
+//print(coreListm2Flatten,"coreListm2Flatten")
+var edgeListm2 = calculateArea(2)
+var edgeListm2Flatten = getFlatten(edgeListm2, 1);
+var edgeListhaFlatten = getFlatten(edgeListm2, 0.0001);
+//print(edgeListm2Flatten ,"edgeListm2Flatten ")
+var fragListm2 = calculateArea(1)
+var fragListm2Flatten = getFlatten(fragListm2, 1);
+var fragListhaFlatten = getFlatten(fragListm2, 0.0001);
+//print(fragListm2Flatten,"fragListm2Flatten")
+var core = reclassifed.eq(3)
+var core_update = core.updateMask(core.neq(0));
+
+var maxCoreListha = featureSizeSequence.map(function(i){
+              var vectors = core_update.addBands(reclassifed).reduceToVectors({
+                geometry: polygonLists.get(i),
+                crs: imgProjection,
+                scale: imgScale,
+                geometryType: 'polygon',
+                reducer: ee.Reducer.mean(),
+                maxPixels:1e13
+              });
+              vectors = vectors.map(calculateFeatureAreaHa); 
+              var maxCore = vectors.aggregate_max('area_ha');
+              return maxCore;      
+          });
+          
+//print(maxCoreListha,"maxcorelistha")          
+var maxCoreListM2 = featureSizeSequence.map(function(i){
+              var vectors = core_update.addBands(reclassifed).reduceToVectors({
+                geometry: polygonLists.get(i),
+                crs: imgProjection,
+                scale: imgScale,
+                geometryType: 'polygon',
+                reducer: ee.Reducer.mean(),
+                maxPixels:1e13
+              });
+              vectors = vectors.map(calculateFeatureAreaM2); 
+              var maxCore = vectors.aggregate_max('area_sqrm');
+              return maxCore;      
+          });
+
+
+
+var ListWFAinHa = featureSizeSequence.map(function(i){
+   var core = ee.Number(coreListhaFlatten.get(i));
+   var edge = ee.Number(edgeListhaFlatten.get(i));
+   var frag = ee.Number(fragListhaFlatten.get(i));
+   var WFA = core.add(edge.multiply(ee.Number(0.8))).add(frag.multiply(ee.Number(0.4)));
+   return WFA;
+});
+
+//print(ListWFAinHa, "Listwfainha")
+var ListWFAinHaFlatten = ListWFAinHa.flatten();
+
+var ListFCIinHa = featureSizeSequence.map(function(i){
+   var WFA = ee.Number(ListWFAinHaFlatten.get(i));
+   var maxCore = ee.Number(maxCoreListha.get(i));
+   var fArea = ee.Number(forestAreaListhaFlatten.get(i));
+   var FCI = WFA.multiply(maxCore).divide(fArea).divide(fArea);
+   return FCI;
+});
+//print(ListFCIinHa,"listfciinha")
+
+//print(forestAreaListha.size().subtract(1))
+//var WFA = coreAreaSqMeter.add(edgeAreaSqMeter.multiply(ee.Number(0.8))).add(fragAreaSqMeter.multiply(ee.Number(0.4)))
+ //          var FCI = WFA.multiply(ee.Number(maxCore)).divide(forestAreaSqMeter).divide(forestAreaSqMeter)
+
+var nullf = ee.Feature(null);
+//VARNAME_2users/IntroGEE_MET3/vietnam_4_regions
+var finalListHa = ee.FeatureCollection(ee.List.sequence(0,forestAreaListha.size().subtract(1)).map(function (ele){
+              var newfc = nullf.set('name',nameListsFlatten.get(ele))
+                            .set('total_forest_area_[ha]', forestAreaListhaFlatten.get(ele))
+                            .set('core_area_[ha]', coreListhaFlatten.get(ele))
+                            .set('edge_area_[ha]', edgeListhaFlatten.get(ele))
+                            .set('fragmented_area_[ha]', fragListhaFlatten.get(ele))
+                            .set('largest_core_forest_patch_[ha]', maxCoreListha.get(ele))
+                            .set('weighted_forest_area_[ha]',ListWFAinHaFlatten.get(ele))
+                            .set('forest_continuity_index_[ha]',ListFCIinHa.get(ele))
+                            ;
+              return  newfc;
+              }));
+//print(finalListHa,"finalListha")              
+var listWFAinm2 = featureSizeSequence.map(function(i){
+   var core = ee.Number(coreListm2Flatten.get(i));
+   var edge = ee.Number(edgeListm2Flatten.get(i));
+   var frag = ee.Number(fragListm2Flatten.get(i));
+   var WFA = core.add(edge.multiply(ee.Number(0.8))).add(frag.multiply(ee.Number(0.4)));
+   return WFA;
+});
+
+var listWFAinm2Flatten = listWFAinm2.flatten();
+
+var listFCIinm2 = featureSizeSequence.map(function(i){
+   var WFA = ee.Number(listWFAinm2Flatten.get(i));
+   var maxCore = ee.Number(maxCoreListM2.get(i));
+   var fArea = ee.Number(forestAreaListm2Flatten.get(i));
+   var FCI = WFA.multiply(ee.Number(maxCore)).divide(fArea).divide(fArea);
+   return FCI;
+});
+
+
+var finalListSqm2 = ee.FeatureCollection(ee.List.sequence(0,forestAreaListm2.size().subtract(1)).map(function (ele){
+              var newfc = nullf.set('name',nameListsFlatten.get(ele))
+                            .set('total_forest_area_[m2]', forestAreaListm2Flatten.get(ele))
+                            .set('core_area_[m2]', coreListm2Flatten.get(ele))
+                            .set('edge_area_[m2]', edgeListm2Flatten.get(ele))
+                            .set('fragmented_area_[m2]', fragListm2Flatten.get(ele))
+                            .set('largest_core_forest_patch_[m2]', maxCoreListM2.get(ele))
+                            .set('weighted_forest_area_[m2]', listWFAinm2Flatten.get(ele))
+                            .set('forest_continuity_index_[m2]',listFCIinm2.get(ele))
+                            ;
+              return  newfc;
+              }));
+
+              
+              var url2 = finalListHa.getDownloadURL();
+              panel.urlLabel2.setUrl(url2);
+              panel.urlLabel2.style().set({shown:true});
+              
+              var url3 = finalListSqm2.getDownloadURL();
+              panel.urlLabel3.setUrl(url3);
+              panel.urlLabel3.style().set({shown:true});
+            }
+}),
+
+urlLabel2 : ui.Label('Download FCI [ha] in csv format ', 
+      {shown: false, fontSize: '13px',
+      padding: '0px 0px 0px 70px', 
+      backgroundColor: 'rgba(0,0,0,0.0)', 
+      color:'#404c24',
+      fontWeight: '700'}),
+      
+urlLabel3 : ui.Label('Download FCI [m2] in csv format ', 
+      {shown: false, fontSize: '13px',
+      padding: '0px 0px 0px 70px', 
+      backgroundColor: 'rgba(0,0,0,0.0)', 
+      color:'#404c24',
+      fontWeight: '700'}),
+
+};
+
+
+//############################################################################
+// END OF MAIN PANEL DEFINITION
+//############################################################################
+
+var panel_fill = ui.Panel({
+    widgets: [
+        panel.title,
+        panel.sec_panel,
+        panel.density_description,
+        panel.density_select,
+        panel.area_list,
+        panel.province,
+        panel.poly,
+        panel.polygonName,
+        panel.polygon,
+        panel.help_poly,
+
+        panel.disp_description,
+        panel.disp_yearly_forest_loss,
+        panel.disp_yearly_forest_loss_perc,
+        panel.disp_remaining_forest,
+        panel.disp_remaining_forest_perc,
+        panel.exportDescription,
+        ui.Panel({widgets: [panel.exportButton, panel.urlLabel],
+                  style: {backgroundColor: 'rgba(0,0,0,0.0)'}}), 
+        panel.drawDescription,
+        ui.Panel({widgets: [panel.drawButton, panel.clearAoiButton],
+                  layout: ui.Panel.Layout.flow('horizontal'),
+                  style: {backgroundColor: 'rgba(0,0,0,0.0)'}}), 
+        panel.exportForestLossRasterDescription,
+        panel.exportForestLossRasterButton,
+        panel.exportRemainingForestRasterDescription,
+        panel.exportRemainingForestRasterButton,
+        panel.exportRemainingForestByteButton,
+        panel.exportRemainingForestByteBufferButton,
+        //panel.inputRasterMSPA,
+        ui.Panel({widgets: [panel.inputRasterMSPA, panel.urlLabel2,panel.urlLabel3],
+                  style: {backgroundColor: 'rgba(0,0,0,0.0)'}}),
+        panel.legend_title,
+        ui.Panel({widgets: [
+            ui.Label({
+                style: {
+                    backgroundColor: '#2c2d1e',
+                    padding: '8px',
+                    margin: '0 10px 10px 10px',
+                }
+            }),
+            ui.Label({
+                value: 'Province Boundary',
+                style: styleL
+            })
+        ], layout: ui.Panel.Layout.flow('horizontal'),
+        style: {padding: '4px 0px 0px 0px',
+     backgroundColor: 'rgba(0,0,0,0.0)'}}),
+        ui.Panel({widgets:[
+            ui.Label({
+                style: {
+                    backgroundColor: '#e50a7e',
+                    padding: '8px',
+                    margin: '0 10px 10px 10px'
+                }
+            }),
+            ui.Label({
+                value: 'Forest Loss 2001-2022',
+                style: styleL
+            })
+        ],layout: ui.Panel.Layout.flow('horizontal'),
+        style: styleL}),
+        ui.Panel({widgets:[
+            ui.Label({
+                style: {
+                    backgroundColor: '#1d8d1b',
+                    padding: '8px',
+                    margin: '0 10px 10px 10px'
+                }
+            }), 
+            ui.Label({
+                value: 'Tree Cover in 2000',
+                style: styleL
+            })
+        ], layout: ui.Panel.Layout.flow('horizontal'),
+        style: styleL}),
+        ui.Label('About :', styleH2),
+        ui.Label({value:'Author : Hyeonmin Kang, Cornelia Zygar', style:styleP}),
+        ui.Label({value:'Email: kang@nadar.earth, cornelia.zygar@stud-mail.uni-wuerzburg.de', style:styleP}),
+        ui.Label({value:'Dataset Provider : ', style:styleP}),
+        ui.Label({
+        value: 'Hansen Global Forest Change v1.10 (2000-2022)',
+        style: styleP
+    }).setUrl('http://earthenginepartners.appspot.com/science-2013-global-forest'),
+    ],
+    style: {
+      stretch: 'horizontal',
+        padding: '20px 10px',
+        position: 'bottom-left',
+        width: '350px',
+        backgroundColor: 'rgba(162, 172, 148,0.6)'
+    },
+
+});
+
+drawingTools.setShown(false);
+var layers = drawingTools.layers();
+var nLayers = drawingTools.layers().length();
+if (nLayers > 0) {
+            layers.reset()
+            //layers.get(0).geometries().remove(layers.get(0).geometries().get(0))
+            //drawingTools.layers().remove(layer)
+            //)
+          }
+Map.setCenter(108.216667,16.066667, 6);
+Map.addLayer(hansen.select(['treecover2000']), visParamsTC, 'Forest Cover 2000');
+Map.addLayer(hansen.select(['lossyear']), {
+    palette: '#e50a7e'
+}, 'Forest Loss 2001-2020');
+Map.addLayer(province.style(PROVINCES_STYLE),{},"vietnam provinces");
+
+
+
+ui.root.add(panel_fill);
+
+//###############################################################################################
+//Helpfunctions
+//###############################################################################################
+
+// function connected to button on panel
+// removes panel from the map
+function clearResults() {
+          Map.remove(chartPanel);
+}
+            
+            
+// function to define minimum tree cover density
+// only called when value is changed in corresponding drop down menu
+var densityAdjust = function(f){
+  // setting value of global variable
+  MTCD_val = f;
+  
+  // forest loss
+  // only detecting loss pixels where treecover2000 is larger than f %
+  var lossImage_fperc = (hansen.select(['treecover2000']).gte(ee.Number(f)).selfMask()).and(hansen.select(['loss']).eq(1).selfMask());
+  lossAreaImage = lossImage_fperc.multiply(ee.Image.pixelArea());
+  
+  // forest area in 2000
+  var treeCover_fperc = treeCover.gte(ee.Number(f));
+  treeCover2000area_2 = treeCover_fperc.multiply(ee.Image.pixelArea());
+  
+};
+
+
+// deriving deforestation area (polygon wise)
+var yearlyDefo = function(f){
+  var lossByYear = lossAreaImage.addBands(lossYear).reduceRegion({
+  reducer: ee.Reducer.sum().group({
+    groupField: 1
+    }),
+  geometry: f,
+  scale: scale,
+  maxPixels: 1e9
+  });
+  var statsFormatted = ee.List(lossByYear.get('groups'))
+  .map(function(el) {
+    var d = ee.Dictionary(el);
+    return [ee.Number(d.get('group')).format("20%02d"), 
+                    ee.Number(d.get('sum')).multiply(0.0001).multiply(10).round().divide(10)];
+  });
+  var statsDictionary = ee.Dictionary(statsFormatted.flatten());
+  return statsDictionary;
+};
+
+// calculating forest area in the year 2000 in a certain area
+var forestArea2000 = function(f){
+  var treeCover2000 = treeCover2000area_2.reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: ee.Geometry(f),
+  scale: scale,
+  maxPixels: 1e9,
+
+  });
+  return treeCover2000;
+
+};
+
+
+
+// function to calculate remaining forest area 
+var test_fct = function(current, list){
+  var previous = ee.Number(ee.List(list).get(-1));
+  var calc = previous.subtract(ee.Number(current));
+  return ee.List(list).add(calc);
+};
+
+// returns remaining forest in percent (compared to 2000)
+var remaining_forest_perc_fct = function(FA){
+var wrap = function(current){
+  var forestArea2000_2 = FA;
+  var calc = ee.Number(100).multiply(ee.Number(current)).divide(ee.Number(forestArea2000_2));
+  return calc;
+};
+  return wrap;
+};
+
+// function to calculate yearly forest loss in percent 
+// percentage of forest that was deforestated compared to previous year
+var forest_loss_perc_fct = function(FA){
+var wrap = function(current){
+  var forestArea2000_2 = FA;
+  var calc = ee.Number(100).multiply(ee.Number(current)).divide(ee.Number(forestArea2000_2));
+  return calc;
+};
+  return wrap;
+};
+
+
+/**
+
+VARNAME_2
+users/IntroGEE_MET3/vietnam_4_regions
+users/IntroGEE_MET3/v4_2010MSPA
+
+Name
+users/jniedballa/SNR
+users/IntroGEE_MET3/SNR_2008MSPA_
+users/IntroGEE_MET3/_buffer2016MSPA
+*/
