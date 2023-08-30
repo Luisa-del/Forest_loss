@@ -388,7 +388,6 @@ var panel = {
           
           //creating list of Objects containing values for each year
           first = polygonLists.map(yearlyDefo);
-          print(first, "first")
           
           var size= first.size();
           
