@@ -37,9 +37,9 @@ All analyses are based on the Hansen Global Forest Change dataset.
 2. Click “Run” button. The app interface will appear on the right side of the screen.
 
 *Figure: Start page of GEE-PICX web application.*
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture1.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture1.png">
 
-Link to GEE App ![](https://introgee-met3.users.earthengine.app/view/forest-cover-loss-vietnam) -> not woring
+Link to GEE App ![](https://introgee-met3.users.earthengine.app/view/forest-cover-loss-vietnam) -> not working
 
 Link to GEE source code ![](https://code.earthengine.google.com/?accept_repo=users/IntroGEE_MET3/WWF_FCI) (can also be used to run the app) -> not working
 
@@ -50,23 +50,23 @@ Link to GEE source code ![](https://code.earthengine.google.com/?accept_repo=use
 
 1. Select Minimum Tree Cover Density (MTCD). MTCD used for delineating forest in the year 2000. Specifically, it is the tree canopy cover (defined as canopy closure for all vegetation taller than 5m in height) in the year 2000. The higher the MTCD value, the stricter the definition of forest and less areas considered as forest in 2000.
 
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture2.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture2.png">
 
 2. Define the area of interest (AOI). Either use a province of Vietnam or your own asset. Provinces are selected under “Select a province in Vietnam”, assets are defined under “Or use your own asset as aoi”. If using an asset, it must be a polygon spatial dataset (e.g. protected area polygons) with a column defining the names of the polygons. The asset can contain multiple polygons, even overlapping.
 
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture3.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture3.png">
 
 3. Under “Click on the feature you want to display”, you can click four buttons to show deforestation statistics for the selected AOI (graphs and tables).
 
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture4.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture4.png">
 
 4. Click “get URL to export all the features” button to download deforestation statistics for all years and features in your AOI. After clicking, a “Download in csv format” button will appear. 
 
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture5.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture5.png">
 
 5. To download yearly rasters of forest loss, click “Export forest loss raster to Google Drive”. To download yearly remaining forest rasters, click “Export remaining forest raster to Google Drive”. You can download rasters by clicking “Run” on the prepared list of rasters under the “Tasks” tab. The images will be saved in your Google Drive. **Note** that when using an asset, exported rasters will be clipped to the polygon outline. Use the “Draw your AOI” interface to define an area of interest for which to download rasters (without clipping to polygon outlines). 
 
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture6.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture6.png">
 
 
 ![](".png")
@@ -75,8 +75,8 @@ Link to GEE source code ![](https://code.earthengine.google.com/?accept_repo=use
 
 1. For MSPA, download the remaining forest raster using the buttons with the “... (MSPA)” suffix. This ensures that the rasters are in the correct format for calculating MSPA and then Forest Continuity Index. Click the “Export remaining forest raster (MSPA)” button then (under the “Tasks” tab), click run to save the rasters to your GoogleDrive. From there, download to your local machine. 
 
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture7.png">
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture8.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture7.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture8.png">
 
 2. MSPA can be conducted using GuidosToolbox (GTB) or the QGIS “MSPA” plugin. GTB is more powerful and recommended for larger areas (above ca. 8000x8000 pixels).
 
@@ -111,7 +111,7 @@ Link to GEE source code ![](https://code.earthengine.google.com/?accept_repo=use
         3. Profile = Low compression
         4. Output file: define (with year name).
 
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture9.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture9.png">
 
 
 ![](".png")
@@ -120,12 +120,12 @@ Link to GEE source code ![](https://code.earthengine.google.com/?accept_repo=use
 
 1. Upload the MSPA raster as a Google Earth Engine Asset. Ingestion of the image (after upload) can be time-consuming (about 1 hour for one scene of all of Viet Nam). Multiple rasters can be uploaded / ingested simultaneously.
 
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture10.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture10.png">
 
 2. Enter the Image ID of the uploaded image into the blank field “Raster: users/your_username/asset_name” and click Enter. Download buttons for csv tables containing FCI values will appear. Click to download. Ensure you give the year in the file name (year information is not included in the table). 
 The FCI information in the downloaded table are separated by features in the custom asset defined above (point 2 under [Forest loss statistics](#2-forest-loss-statistic)).
 
-<img src="https://github.com/Luisa-del/Forest_loss_private/blob/main/img/Picture11.png">
+<img src="https://github.com/Luisa-del/Forest_loss/blob/main/img/Picture11.png">
 
 
 ![](".png")
